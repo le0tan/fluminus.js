@@ -22,6 +22,11 @@ class Authentication {
     this.password = password;
   }
 
+  /**
+   * Gets the object using credentials stored in this Authentication object.
+   * @returns A Promise<Authorization> object.
+   * @throws Will throw an error if connection is lost or credentials are invalid.
+   */
   async getAuth() {
     return await this._getJwt(this.username, this.password);
   }
@@ -31,6 +36,12 @@ class Authentication {
     return await this._vafsJwt(this.username, this.password);
   }
 
+  /**
+   * Gets the JWT via VAFS.
+   * @param {string} username 
+   * @param {string} password 
+   * @returns {Authorization} authorization
+   */
   async _vafsJwt(username, password) {
     var query = {
       'response_type': 'code',
@@ -47,26 +58,36 @@ class Authentication {
     Object.keys(query).forEach((key) => {
       uri.searchParams.set(key, query[key]);
     });
-    const cj = new CookieJar();
-    const t1 = await got.post(uri.href, {followRedirect: false, form: body, cookieJar: cj});
-    const loc1 = t1.headers['location'];
-    console.log(loc1);
-    const t2 = await got.get(loc1, {followRedirect: false, cookieJar: cj});
-    const code = require('querystring').parse(require('url').parse(t2.headers['location']).query).code;
-    const adfsBody = {
-      'grant_type': 'authorization_code',
-      'client_id': VAFS_CLIENT_ID,
-      'resource': RESOURCE,
-      'redirect_uri': REDIRECT_URI,
-      'code': code
-    };
-    const t3 = await got.post(`${API_BASE_URL}/login/adfstoken`, {form: adfsBody, headers: {'Ocp-Apim-Subscription-Key': OCM_APIM_SUBSCRIPTION_KEY}});
-    const access_token = JSON.parse(t3.body)['access_token'];
-    return new Authorization('', access_token);
+    try {
+      const cj = new CookieJar();
+      const t1 = await got.post(uri.href, {followRedirect: false, form: body, cookieJar: cj});
+      const loc1 = t1.headers['location'];
+      const t2 = await got.get(loc1, {followRedirect: false, cookieJar: cj});
+      const code = require('querystring').parse(require('url').parse(t2.headers['location']).query).code;
+      const adfsBody = {
+        'grant_type': 'authorization_code',
+        'client_id': VAFS_CLIENT_ID,
+        'resource': RESOURCE,
+        'redirect_uri': REDIRECT_URI,
+        'code': code
+      };
+      const t3 = await got.post(`${API_BASE_URL}/login/adfstoken`, {form: adfsBody, headers: {'Ocp-Apim-Subscription-Key': OCM_APIM_SUBSCRIPTION_KEY}});
+      const access_token = JSON.parse(t3.body)['access_token'];
+      return new Authorization('', access_token);
+    } catch (error) {
+      switch (error.name) {
+        case 'RequestError':
+          throw new Error("The connection to authentication server seems to be broken.");
+        case 'TypeError':
+          throw new Error("The provided credentials seem to be incorrect.")
+        default:
+          throw new Error("Unknown error when authenticating.")
+      }
+    }
   }
 }
 
-class API {
+class Api {
   /**
    * 
    * @param {Authorization} auth 
@@ -78,8 +99,7 @@ class API {
   }
 }
 
-new Authentication("nusstu\\e0261xxx", 'password').getAuth().then((auth) => {
-  API._apiGet(auth, '/user/profile').then((res) => {
-    console.log(res);
-  })
-});
+module.exports = {
+  Authentication,
+  Api
+}
